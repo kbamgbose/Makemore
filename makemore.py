@@ -55,7 +55,7 @@ out = []
 ix = 0;
 
 P = (N+1).float()
-P /= P.sum(1, keepdims=True)
+P /= P.sum(1, keepdim=True)
 
 for i in range(5):
 
@@ -68,7 +68,7 @@ for i in range(5):
         out.append(itos[ix])
         if ix == 0:
             break
-    print(''.join(out))
+    # print(''.join(out))
 
 P.sum(1, keepdim=True).shape
 
@@ -79,19 +79,19 @@ P.sum(1, keepdim=True).shape
 # equivalent to minimizing the average negative log likelihood
 
 # log(a*b*c) = log(a) + log(b) + log(c)
-log_likelihood = 0.0
-n = 0
+# log_likelihood = 0.0
+# n = 0
 
-for w in words[:3]:
-# for w in ["kola"]:
-    chs = ['.'] + list(w) + ['.']
-    for ch1, ch2 in zip(chs, chs[1:]):
-        ix1 = stoi[ch1]
-        ix2 = stoi[ch2]
-        prob = P[ix1, ix2]
-        logprob = torch.log(prob)
-        log_likelihood += logprob
-        n += 1
+# for w in words[:3]:
+# # for w in ["kola"]:
+#     chs = ['.'] + list(w) + ['.']
+#     for ch1, ch2 in zip(chs, chs[1:]):
+#         ix1 = stoi[ch1]
+#         ix2 = stoi[ch2]
+#         prob = P[ix1, ix2]
+#         logprob = torch.log(prob)
+#         log_likelihood += logprob
+#         n += 1
         # print(f'{ch1}{ch2}: {prob:.4f} {logprob:.4f}')
 
 # print(log_likelihood)
@@ -103,23 +103,56 @@ for w in words[:3]:
 # create the training set of all the bigrams(x, y)
 xs, ys = [], []
 
-for w in words[:1]:
+for w in words:
     chs = ['.'] + list(w) + ['.']
     for ch1, ch2 in zip(chs, chs[1:]):
         ix1 = stoi[ch1]
         ix2 = stoi[ch2]
-        print(ch1, ch2)
         xs.append(ix1)
         ys.append(ix2)
-
 xs = torch.tensor(xs)
 ys = torch.tensor(ys)
+num = xs.nelement()
+print('number of examples: ', num)
 
-xenc = F.one_hot(xs, num_classes=27).float()
+# Random initiations of 27 neurons weights, each neuron has 27 inputs
+g = torch.Generator().manual_seed(2147483647)
+W = torch.randn((27, 27), generator=g, requires_grad=True)
 
-W = torch.randn((27, 27))
-# (5, 27) @ (27, 1)
-logits = xenc @ W # log-counts
-counts = (xenc @ W).exp() #equivalent N
-probs = counts / counts.sum(1, keepdims=True)
-print(probs)
+#gradient descent
+for k in range(200):
+    #forward pass
+    xenc = F.one_hot(xs, num_classes=27).float() # (5, 27) @ (27, 1) = (5, 27)
+    logits = xenc @ W # log-counts
+    counts = (xenc @ W).exp() #equivalent N
+    probs = counts / counts.sum(1, keepdim=True)
+    loss = -probs[torch.arange(num), ys].log().mean() + 0.01*(W**2).mean()
+
+
+    #backward pass
+    W.grad = None # set the zero the gradient
+    loss.backward() 
+
+    W.data += -50 * W.grad
+
+print(loss.item())
+
+
+g = torch.Generator().manual_seed(2147483647)
+
+for i in range(5):
+
+    out = []
+    ix = 0
+    while True:
+
+        xenc = F.one_hot(torch.tensor([ix]), num_classes=27).float() # (5, 27) @ (27, 1) = (5, 27)
+        logits = xenc @ W # log-counts
+        counts = (xenc @ W).exp() #equivalent N
+        p = counts / counts.sum(1, keepdim=True)
+
+        ix = torch.multinomial(p, num_samples=1, replacement=True, generator=g).item()
+        out.append(itos[ix])
+        if ix == 0:
+            break
+    print(''.join(out))
