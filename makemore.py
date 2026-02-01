@@ -135,7 +135,7 @@ for k in range(200):
 
     W.data += -50 * W.grad
 
-print(loss.item())
+# print(loss.item())
 
 
 g = torch.Generator().manual_seed(2147483647)
@@ -155,4 +155,4 @@ for i in range(5):
         out.append(itos[ix])
         if ix == 0:
             break
-    print(''.join(out))
+    # print(''.join(out))

@@ -5,17 +5,13 @@ import random
 
 # read in all the words
 words = open('names.txt', 'r').read().splitlines()
-words[:8]
-
-len(words)
 
 chars = sorted(list(set(''.join(words))))
 stoi = {s:i+1 for i, s in enumerate(chars)}
 stoi['.'] = 0;
 itos = {i:s for s, i in stoi.items()}
 vocab_size = len(itos)
-print(itos)
-print(vocab_size)
+
 
 block_size = 3 # context length: how many characters do we take in to predict the next one
 
@@ -40,7 +36,14 @@ n2 = int(0.9 * len(words))
 
 Xtr, Ytr = build_dataset(words[:n1])         #80%
 Xdev, Ydev = build_dataset(words[n1:n2])     #10%
-Xte, Yte = build_dataset(words[:n2])         #10%
+Xte, Yte = build_dataset(words[n2:])         #10%
+
+
+x = torch.randn(1000, 10)
+w = torch.randn(10, 200)
+y = x @ w
+print(x.mean(), x.std())
+print(y.mean(), y.std())
 
 #MLP revisited
 n_embd = 10  # the dimensionality of the character embedding vectors
@@ -48,13 +51,16 @@ n_hidden = 200  # the number of neurons in the hidden layer of the MLP
 
 g = torch.Generator().manual_seed(2147483647) # for reproducibility
 C = torch.randn((vocab_size, n_embd), generator=g)
-W1 = torch.randn((n_embd * block_size, n_hidden), generator=g)
-b1 = torch.randn(n_hidden, generator=g)
-W2 = torch.randn((n_hidden, vocab_size), generator=g)
-b2 = torch.randn(vocab_size, generator=g)
+W1 = torch.randn((n_embd * block_size, n_hidden), generator=g) * (5/3) / (n_embd * block_size)**0.5
+b1 = torch.randn(n_hidden, generator=g) * 0.01
+W2 = torch.randn((n_hidden, vocab_size), generator=g) * 0.01
+b2 = torch.randn(vocab_size, generator=g) * 0
+bngain = torch.ones((1, n_hidden))
+bnbias = torch.zeros((1, n_hidden))
 
 
-parameters = [C, W1, b1, W2, b2]
+
+parameters = [C, W1, b1, W2, b2, bngain, bnbias]
 print(sum(p.nelement() for p in parameters)) # number of parameters in total
 for p in parameters:
     p.requires_grad = True
@@ -74,6 +80,9 @@ for i in range(max_steps):
     emb = C[Xb] # embed the characters into vectors
     embcat = emb.view(emb.shape[0], -1) # concatenate the vectors
     hpreact = embcat @ W1 + b1 # hidden layer pre-activation
+    bnmeani = hpreact.std(0, keepdim=True)
+    bnstdi = hpreact.std(0, keepdim=True)
+    hpreact = bngain * (hpreact - hpreact.mean(0, keepdim=True)) / hpreact.std(0, keepdim=True) + bnbias
     h = torch.tanh(hpreact) # hidden layer
     logits = h @ W2 + b2 # output layer
     loss = F.cross_entropy(logits, Yb) # loss function
@@ -93,6 +102,15 @@ for i in range(max_steps):
         print(f'{i:7d}/{max_steps:7d}: {loss.item():.4f}')
     lossi.append(loss.log10().item())
 
+with torch.no_grad():
+    #pass the training set through
+    emb = C[Xtr]
+    embcat = emb.view(emb.shape[0], -1)
+    hpreact = embcat @ W1 + b1
+    # meadure the mean/std over the entire training set
+    bnmean = hpreact.mean(0, keepdim=True)
+    bnstd = hpreact.std(0, keepdim=True)
+
 @torch.no_grad() # this decorator disables gradient tracking
 def split_loss(split):
     x, y = {
@@ -103,6 +121,8 @@ def split_loss(split):
     #forward pass
     emb = C[x] # (N, block_size, n_embd)
     embcat = emb.view(emb.shape[0], -1) # concat into (N, block_size * n_embd)
+    hpreact = embcat @ W1 + b1
+    hpreact = bngain * (hpreact - bnmean) / bnstd + bnbias
     h = torch.tanh(embcat @ W1 + b1) # (N, n_hidden)
     logits = h @ W2 + b2 # (N, vocab_size)
     loss = F.cross_entropy(logits, y)
@@ -134,4 +154,4 @@ for _ in range(20):
         
     print(''.join(itos[i] for i in out)) # decode and print the generated word
 
-    
+
